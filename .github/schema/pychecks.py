@@ -10,13 +10,25 @@ from pydantic import BaseModel, HttpUrl, ValidationError, ConfigDict, model_vali
 
 str_non_empty = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, pattern=r"[^ ]+", strict=True)]
 
+def folder_validator(value: str) -> str:
+    assert value[-1] != '\\', "Should not have a trailing slash"
+    assert not re.findall(r'\\\\', value), "Found double slashes"
+    assert not re.match(r'^\.+[\\/]', value), "Should not start with dots"
+    return value
+
+def path_validator(value: str) -> str:
+    assert value[-4:].lower() == '.exe', "Executable should end in .exe"
+    assert not re.findall(r'\\\\', value), "Found double slashes"
+    assert not re.match(r'^\.+[\\/]', value), "Should not start with dots"
+    return value
 
 def valid_variables(value: str) -> str:
+    assert len(re.findall(r'%', value)) % 2 == 0, "Unbalanced percentage signs (%) found"
     for variable in re.findall(r'%([^%]+)%', value):
-        if not variable in ['SYSTEM32', 'SYSWOW64', 'WINDIR', 'PROGRAMFILES', 'PROGRAMDATA', 'APPDATA', 'LOCALAPPDATA', 'VERSION', 'USERPROFILE']:
+        if not variable in (variables := ['SYSTEM32', 'SYSWOW64', 'WINDIR', 'PROGRAMFILES', 'PROGRAMDATA', 'APPDATA', 'LOCALAPPDATA', 'VERSION', 'USERPROFILE']):
             if variable and variable.lower() == 'programfiles(x86)':
                 raise AssertionError(f"Unexpected variable %{variable}%, please use %PROGRAMFILES% instead")
-            raise AssertionError(f"Unexpected variable %{variable}%")
+            raise AssertionError(f"Unexpected variable %{variable}%; expecting one of: {', '.join(variables)}")
     return value
 
 
@@ -52,7 +64,7 @@ class SignatureInformation(BaseModel):
 class VulnerableExecutables(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    Path: Annotated[str, StringConstraints(pattern=r"^[ a-zA-Z0-9&_\-\+\\%\.\(\):@]+$"), AfterValidator(valid_variables)]
+    Path: Annotated[str, StringConstraints(pattern=r"^[ a-zA-Z0-9&_\-\+\\%\.\(\):@]+$"), AfterValidator(valid_variables), AfterValidator(path_validator)]
     Type: Annotated[str, StringConstraints(pattern=r"^(Sideloading|Phantom|Search Order|Environment Variable)$")]
     AutoElevate: bool = None
     PrivilegeEscalation: bool = None
@@ -85,7 +97,7 @@ class Entry(BaseModel):
     ExpectedVersionInformation: Optional[list[VersionInformation]] = None
     ExpectedSignatureInformation: list[SignatureInformation] = None
 
-    ExpectedLocations: Optional[list[Annotated[str, StringConstraints(pattern=r"^[%cC][ a-zA-Z0-9&_\-\+\\%\.\(\):@]+$"), AfterValidator(valid_variables)]]] = None
+    ExpectedLocations: Optional[list[Annotated[str, StringConstraints(pattern=r"^[%cC][ a-zA-Z0-9&_\-\+\\%\.\(\):@]+$"), AfterValidator(valid_variables), AfterValidator(folder_validator)]]] = None
 
     VulnerableExecutables: list[VulnerableExecutables]
 
